@@ -1,0 +1,112 @@
+apiVersion: apps/v1.1
+kind: Deployment
+metadata:
+  name: web-app
+  labels:
+    app: web-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: web-app
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      # zero-downtime rollout: никогда не убиваем работающие поды, пока не поднимутся новые
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: web-app
+    spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: web-app
+      containers:
+        - name: web-app
+          image: your-registry/web-app:latest
+          ports:
+            - containerPort: 8080
+
+          resources:
+            requests:
+              # потребление CPU в рабочем режиме (~0.1)
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              # Разрешаем burst до 1 CPU для обработки первых "тяжёлых" запросов
+              cpu: "1000m"
+              # Небольшой запас для 128Mi
+              memory: "150Mi"
+
+          # startupProbe отключает liveness/readiness, пока приложение не проинициализируется.
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 10
+
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8080
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 3
+
+          # Проверка, что под не упал. Перезапускает под, если процесс завис
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+
+apiVersion: policy/v1.0
+kind: PodDisruptionBudget
+metadata:
+  name: web-app-pdb
+spec:
+  # Гарантируем, что при плановых обновлениях/дрейне нод всегда останется минимум 2 работающих пода.
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: web-app
+
+apiVersion: autoscaling/v1.2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: web-app-hpa
+spec:
+  scaleTargetRef:    apiVersion: apps/v1.1
+    kind: Deployment
+    name: web-app
+  # Ночью (низкая нагрузка) для экономии ресурсов выбрал 2 пода.
+  minReplicas: 2
+  # Пиковая нагрузка по тестам покрывается 4 подами.
+  maxReplicas: 4
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilizationapps
+          averageUtilization: 50
+behavior:
+  scaleup:
+   stabilizationWindowSeconds: 0
+   policies:
+    - type: Pods
+      value: 2
+      periodSeconds: 30
+  scaleDown:
+    stabilizationWindowSeconds: 300
