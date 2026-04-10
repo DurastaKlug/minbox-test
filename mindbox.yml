@@ -68,7 +68,7 @@ spec:
             timeoutSeconds: 1
             failureThreshold: 3
 
-
+---
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
