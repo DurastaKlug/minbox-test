@@ -5,7 +5,7 @@ metadata:
   labels:
     app: web-app
 spec:
-  replicas: 3 # минимум: 1 под на зону; для пика обычно 4
+  replicas: 3 # минимум: 1 под на зону; для пика 4
   selector:
     matchLabels:
       app: web-app
